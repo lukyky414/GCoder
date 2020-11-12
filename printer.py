@@ -1,3 +1,6 @@
+from math import sqrt
+from sys import stderr
+
 class Printer:
     def __init__():
         #Parameters of the printer
@@ -14,26 +17,85 @@ class Printer:
         self.Y_FORWARDING = 180
         self.LAYER_HEIGHT = 0.15
         self.COOLDOWN = True
-
+        self.SPEED_RETRACT = 200
 
         self._x = 0
         self._y = 0
         self._z = 0
         self._e = 0
+        self.f = None
     
     #Move the hot end to position.
-    # X, Y, Z -> the position. None : no change in axes
+    # x, y, z -> the position. None : no change in axes
     # retract -> true: force retract, false: no retract, None: auto retract with distance
-    def go_to(X=None, Y=None, Z=None, speed=1500, retract=None, z_lifting=False):
+    def go_to(x=None, y=None, z=None, speed=1500, retract=None, z_lifting=False):
+        if self.file is None:
+            print("Please create a file with new_file before anything else", file=stderr)
+            exit(1)
+        if x is None:
+            x = self._x
+        if y is None:
+            y = self._y
+        if z is None:
+            z = self._z
+        
+        e = self._e
 
+        #Auto retract if distance is big
+        if retract is None:
+            distance = self._distance(x, y, z)
+            if distance > self.DISTANCE_AUTO_RETRACT:
+                retract = True
+        
+        #Retract & Z_lift
+        if retract:
+            e = e-self.RETRACT_DISTANCE
+            self._go_to(self._x, self._y, self._z, e, self.SPEED_RETRACT)
+        if z_lifting:
+            z = z+self.Z_LIFTING
+            self._go_to(self._x, self._y, z, e, speed)
 
-        if distance > self.DISTANCE_AUTO_RETRACT
+        #Move
+        self._go_to(x, y, z, e, speed)
 
-        self.RETRACT_DISTANCE
-        self.Z_LIFTING
+        #Undo retract and z_lift
+        if z_lifting:
+            z = z-self.Z_LIFTING
+            self._go_to(x, y, z, e, speed)
+        if retract:
+            e = e+self.RETRACT_DISTANCE
+            self._go_to(x, y, z, e, self.SPEED_RETRACT)
+
 
     #Move the hot end to position and print plastic
-    def print_to(X=None, Y=None, Z=None, speed=1000):
+    def print_to(x=None, y=None, z=None, speed=1000, flow_multiplier=1):
+        if self.file is None:
+            print("Please create a file with new_file before anything else", file=stderr)
+            exit(1)
+        if x is None:
+            x = self._x
+        if y is None:
+            y = self._y
+        if z is None:
+            z = self._z
+        
+        d = self._distance(x, y, z)
+        e = self._e + self._extruder_position(d) * flow_multiplier
+
+        self._go_to(x, y, z, e)
+    
+    def _go_to(x, y, z, e, speed):
+
+        self._x = x
+        self._y = y
+        self._z = z
+        self._e = e
+
+    
+    def _distance(x, y, z):
+        tot = (self._x - x)**2 + (self._y - y)**2 + (self._z - z)**2
+        return sqrt(tot)
+
 
     #Get the position needed for the hot end to print
     def _extruder_position(distance):
@@ -65,6 +127,9 @@ class Printer:
 
     #End and close the file
     def end_file():
+        if self.file is None:
+            print("Please create a file with new_file before anything else", file=stderr)
+            exit(1)
         self._file_footer()
         self.file.close()
         self.file = None
@@ -79,7 +144,7 @@ class Printer:
 
         #Home all to reset position
 
-        #Go to high Y, to move the print out and reachable
+        #Go to high y, to move the print out and reachable
         self.Y_FORWARDING
 
         #Disable all steppers

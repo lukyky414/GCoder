@@ -1,4 +1,4 @@
-from math import sqrt
+from math import sqrt, pi
 from sys import stderr
 
 class Printer:
@@ -17,7 +17,10 @@ class Printer:
         self.Y_FORWARDING = 180
         self.LAYER_HEIGHT = 0.15
         self.COOLDOWN = True
-        self.SPEED_RETRACT = 200
+        self.RETRACT_SPEED = 200
+        self.EXTRUDER_MULTIPLIER = 4
+
+        self._filament_surface = None
 
         self._x = 0
         self._y = 0
@@ -50,7 +53,7 @@ class Printer:
         #Retract & Z_lift
         if retract:
             e = e-self.RETRACT_DISTANCE
-            self._go_to(self._x, self._y, self._z, e, self.SPEED_RETRACT)
+            self._go_to(self._x, self._y, self._z, e, self.RETRACT_SPEED)
         if z_lifting:
             z = z+self.Z_LIFTING
             self._go_to(self._x, self._y, z, e, speed)
@@ -64,7 +67,7 @@ class Printer:
             self._go_to(x, y, z, e, speed)
         if retract:
             e = e+self.RETRACT_DISTANCE
-            self._go_to(x, y, z, e, self.SPEED_RETRACT)
+            self._go_to(x, y, z, e, self.RETRACT_SPEED)
 
 
     #Move the hot end to position and print plastic
@@ -99,9 +102,14 @@ class Printer:
 
     #Get the position needed for the hot end to print
     def _extruder_position(distance):
-        self.FILAMENT_DIAMETER
-        self.NOZZLE_DIAMETER
-        self.LAYER_HEIGHT
+        if self._filament_surface is None:
+            self._filament_surface = pi * self.FILAMENT_DIAMETER**2
+        
+        volume = distance * self.LAYER_HEIGHT * self.NOZZLE_DIAMETER
+        fil_length = volume / self._filament_surface
+        size_to_print = fil_length * self.EXTRUDER_MULTIPLIER
+
+        return self._e + size_to_print
 
     #Create a new file, and automatically add the header
     def new_file(name):
@@ -119,8 +127,11 @@ class Printer:
         #Home all axes (before the print, in case of heat distortion)
 
         #Print a fat straight line to purge the Hot end
-        self.FAT_LINE_POSITION_Y
-        self.BED_SIZE_X/2
+        self._go_to(0, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT, 0, 1500)
+
+        d = self._distance(self.BED_SIZE_X, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT)
+        e = self._extruder_position(d)*2
+        self._go_to(self.BED_SIZE_X, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT, e, 900)
 
         #Reset the position of the extruder
         
@@ -137,17 +148,18 @@ class Printer:
     #The footer of the file
     def _file_footer():
         #Retract a little
-        self.RETRACT_DISTANCE
+        self._go_to(self._x, self._y, self._z, self._e-self.RETRACT_DISTANCE, self.RETRACT_SPEED)
 
         #Go up a bit to avoid collision with the print
-        self.Z_LIFTING
+        self._go_to(self._x, self._y, self._z+self.Z_LIFTING, self._e, 1500)
 
-        #Home all to reset position
+        #Home x and y axis to reset position
 
         #Go to high y, to move the print out and reachable
-        self.Y_FORWARDING
+        self._go_to(0, self.Y_FORWARDING, self._z, self._e, 1500)
 
         #Disable all steppers
 
         #Stop the heating
-        if self.COOLDOWN
+        if self.COOLDOWN:
+            

@@ -1,88 +1,207 @@
+from math import sqrt, pi
+from sys import stderr
+
 class Printer:
-    def __init__():
+    def __init__(self):
         #Parameters of the printer
-        self.BED_SIZE_X = 220
-        self.BED_SIZE_Y = 220
         self.TEMP_HOT_END = 200
         self.TEMP_BED = 70
+        self.BED_SIZE_X = 220
+        self.BED_SIZE_Y = 220
         self.FAT_LINE_POSITION_Y = -5
         self.DISTANCE_AUTO_RETRACT = 10
         self.FILAMENT_DIAMETER = 1.75
         self.NOZZLE_DIAMETER = 0.4
-        self.RETRACT_DISTANCE = 3
-        self.Z_LIFTING = 1
+        self.Z_LIFTING = None
         self.Y_FORWARDING = 180
         self.LAYER_HEIGHT = 0.15
         self.COOLDOWN = True
+        self.RETRACT_DISTANCE = 3
+        self.RETRACT_SPEED = 1500
+        # True: force retract at each movement, False: no retract, None: auto retract with distance
+        self.RETRACT = None
+        self.EXTRUDER_MULTIPLIER = 4
+        self.ENABLE_FAN = True
+        self.MOVEMENT_SPEED = 3600
+        self.PRINT_SPEED = 1500
+        self.PRINT_SPEED_FIRST_LAYER = 1000
 
+        self._filament_surface = None
 
+        self._first_layer = True
         self._x = 0
         self._y = 0
         self._z = 0
         self._e = 0
+        self._file = None
     
     #Move the hot end to position.
-    # X, Y, Z -> the position. None : no change in axes
-    # retract -> true: force retract, false: no retract, None: auto retract with distance
-    def go_to(X=None, Y=None, Z=None, speed=1500, retract=None, z_lifting=False):
+    # x, y, z -> the position. None : no change in axes
+    def go_to(self, x=None, y=None, z=None):
+        if self._file is None:
+            print("Please create a file with new_file before anything else", file=stderr)
+            exit(1)
+        if x is None:
+            x = self._x
+        if y is None:
+            y = self._y
+        if z is None:
+            z = self._z
+        
+        e = self._e
 
+        retract = self.RETRACT
 
-        if distance > self.DISTANCE_AUTO_RETRACT
+        #Auto retract if distance is big
+        if retract is None:
+            distance = self._distance(x, y, z)
+            if distance > self.DISTANCE_AUTO_RETRACT:
+                retract = True
+        
+        #Retract & Z_lift
+        if retract:
+            e = e-self.RETRACT_DISTANCE
+            self._go_to(self._x, self._y, self._z, e, self.RETRACT_SPEED)
+        if self.Z_LIFTING is not None:
+            z = z+self.Z_LIFTING
+            self._go_to(self._x, self._y, z, e, self.MOVEMENT_SPEED)
 
-        self.RETRACT_DISTANCE
-        self.Z_LIFTING
+        #Move
+        self._go_to(x, y, z, e, self.MOVEMENT_SPEED)
+
+        #Undo retract and z_lift
+        if self.Z_LIFTING is not None:
+            z = z-self.Z_LIFTING
+            self._go_to(x, y, z, e, self.MOVEMENT_SPEED)
+        if retract:
+            e = e+self.RETRACT_DISTANCE
+            self._go_to(x, y, z, e, self.RETRACT_SPEED)
+
 
     #Move the hot end to position and print plastic
-    def print_to(X=None, Y=None, Z=None, speed=1000):
+    def print_to(self, x=None, y=None, z=None):
+        if self._file is None:
+            print("Please create a file with new_file before anything else", file=stderr)
+            exit(1)
+        if x is None:
+            x = self._x
+        if y is None:
+            y = self._y
+        if z is None:
+            z = self._z
+        
+        d = self._distance(x, y, z)
+        e = self._extruder_position(d)
+
+
+        self._go_to(x, y, z, e, self.PRINT_SPEED)
+    
+    #Move up to a new layer
+    def new_layer(self):
+        if self._first_layer:
+            self._first_layer = False
+            if self.ENABLE_FAN:
+                print("M106 S255;", file=self._file)
+        
+        self._go_to(self._x, self._y, self._z+self.LAYER_HEIGHT, self._e, self.MOVEMENT_SPEED)
+    
+    def _go_to(self, x, y, z, e, speed):
+        print("G1 X{:.9f} Y{:.9f} Z{:.9f} E{:.9f} F{};".format(x, y, z, e, speed), file=self._file)
+
+        self._x = x
+        self._y = y
+        self._z = z
+        self._e = e
+
+    
+    def _distance(self, x, y, z):
+        tot = (self._x - x)**2 + (self._y - y)**2 + (self._z - z)**2
+        return sqrt(tot)
+
 
     #Get the position needed for the hot end to print
-    def _extruder_position(distance):
-        self.FILAMENT_DIAMETER
-        self.NOZZLE_DIAMETER
-        self.LAYER_HEIGHT
+    def _extruder_position(self, distance):
+        if self._filament_surface is None:
+            self._filament_surface = pi * self.FILAMENT_DIAMETER**2
+        
+        volume = distance * self.LAYER_HEIGHT * self.NOZZLE_DIAMETER
+        fil_length = volume / self._filament_surface
+        size_to_print = fil_length * self.EXTRUDER_MULTIPLIER
+
+        return self._e + size_to_print
 
     #Create a new file, and automatically add the header
-    def new_file(name):
-        self.file = open(name, "w")
+    def new_file(self, name):
+        self._file = open(name, "w")
         self._file_header()
 
     #The header of the file
-    def _file_header():
-        #Home all axes (be sure to start heating in a good position)
+    def _file_header(self):
+        #Absolute positionning
+        print("G90;", file=self._file)
 
-        #Select the temperature needed, and wait to heat up
-        self.TEMP_BED
-        self.TEMP_HOT_END
+        #Home all axes (be sure to start heating in a good position)
+        print("G28 X Y;", file=self._file)
+
+        #Reset the position of the extruder to be sure its 0
+        print("G92 E0;", file=self._file)
+        self._e = 0
+
+        #Select the temperature needed
+        print("M104 S{};".format(self.TEMP_HOT_END), file=self._file)
+        print("M140 S{};".format(self.TEMP_BED), file=self._file)
+        #and wait to heat up
+        print("M109 S{};".format(self.TEMP_HOT_END), file=self._file)
+        print("M190 S{};".format(self.TEMP_BED), file=self._file)
 
         #Home all axes (before the print, in case of heat distortion)
+        print("G28 X0 Y0 Z0;", file=self._file)
+        self._x = 0
+        self._y = 0
+        self._z = 0
 
         #Print a fat straight line to purge the Hot end
-        self.FAT_LINE_POSITION_Y
-        self.BED_SIZE_X/2
+        self._go_to(0, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT, 0, 1500)
 
-        #Reset the position of the extruder
-        
+        d = self._distance(self.BED_SIZE_X/2, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT)
+        e = self._extruder_position(d)*2
+        self._go_to(self.BED_SIZE_X/2, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT, e, 900)
+
+        self._first_layer = True
+        self._filament_surface = None
 
     #End and close the file
-    def end_file():
+    def end_file(self):
+        if self._file is None:
+            print("Please create a file with new_file before anything else", file=stderr)
+            exit(1)
         self._file_footer()
-        self.file.close()
-        self.file = None
+        self._file.close()
+        self._file = None
 
     #The footer of the file
-    def _file_footer():
+    def _file_footer(self):
+        #disable the fan
+        print("M107;", file=self._file)
+
         #Retract a little
-        self.RETRACT_DISTANCE
+        self._go_to(self._x, self._y, self._z, self._e-self.RETRACT_DISTANCE, self.RETRACT_SPEED)
 
         #Go up a bit to avoid collision with the print
-        self.Z_LIFTING
+        self._go_to(self._x, self._y, self._z+1, self._e, 3600)
 
-        #Home all to reset position
-
-        #Go to high Y, to move the print out and reachable
-        self.Y_FORWARDING
+        #Go to high y, to move the print out and reachable
+        #while not moving the x axis at all
+        print("G1 Y{:.9f} F{};".format(self.Y_FORWARDING, 3600), file=self._file)
+        
+        #Home x and y axis to reset position
+        print("G28 X0;", file=self._file)
 
         #Disable all steppers
+        print("M84;", file=self._file)
 
         #Stop the heating
-        if self.COOLDOWN
+        if self.COOLDOWN:
+            print("M104 S0;", file=self._file)
+            print("M140 S0;", file=self._file)
+            

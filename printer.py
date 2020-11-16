@@ -17,7 +17,7 @@ class Printer:
         self.LAYER_HEIGHT = 0.15
         self.COOLDOWN = True
         self.RETRACT_DISTANCE = 3
-        self.RETRACT_SPEED = 200
+        self.RETRACT_SPEED = 1500
         # True: force retract at each movement, False: no retract, None: auto retract with distance
         self.RETRACT = None
         self.EXTRUDER_MULTIPLIER = 4
@@ -101,12 +101,12 @@ class Printer:
         if self._first_layer:
             self._first_layer = False
             if self.ENABLE_FAN:
-                print("M106 S255", file=self._file)
+                print("M106 S255;", file=self._file)
         
         self._go_to(self._x, self._y, self._z+self.LAYER_HEIGHT, self._e, self.MOVEMENT_SPEED)
     
     def _go_to(self, x, y, z, e, speed):
-        print("G1 X{:.9f} Y{:.9f} Z{:.9f} E{:.9f} F{}".format(x, y, z, e, speed), file=self._file)
+        print("G1 X{:.9f} Y{:.9f} Z{:.9f} E{:.9f} F{};".format(x, y, z, e, speed), file=self._file)
 
         self._x = x
         self._y = y
@@ -138,29 +138,27 @@ class Printer:
     #The header of the file
     def _file_header(self):
         #Absolute positionning
-        print("G90", file=self._file)
+        print("G90;", file=self._file)
 
         #Home all axes (be sure to start heating in a good position)
-        print("G28 X0 Y0", file=self._file)
-        self._x = 0
-        self._y = 0
+        print("G28 X Y;", file=self._file)
+
+        #Reset the position of the extruder to be sure its 0
+        print("G92 E0;", file=self._file)
+        self._e = 0
 
         #Select the temperature needed
-        print("M104 S"+str(self.TEMP_HOT_END), file=self._file)
-        print("M140 S"+str(self.TEMP_BED), file=self._file)
+        print("M104 S{};".format(self.TEMP_HOT_END), file=self._file)
+        print("M140 S{};".format(self.TEMP_BED), file=self._file)
         #and wait to heat up
-        print("M109 S"+str(self.TEMP_HOT_END), file=self._file)
-        print("M190 S"+str(self.TEMP_BED), file=self._file)
+        print("M109 S{};".format(self.TEMP_HOT_END), file=self._file)
+        print("M190 S{};".format(self.TEMP_BED), file=self._file)
 
         #Home all axes (before the print, in case of heat distortion)
-        print("G28 X0 Y0 Z0", file=self._file)
+        print("G28 X0 Y0 Z0;", file=self._file)
         self._x = 0
         self._y = 0
         self._z = 0
-
-        #Reset the position of the extruder to be sure its 0
-        print("G92 E0", file=self._file)
-        self._e = 0
 
         #Print a fat straight line to purge the Hot end
         self._go_to(0, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT, 0, 1500)
@@ -168,10 +166,6 @@ class Printer:
         d = self._distance(self.BED_SIZE_X/2, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT)
         e = self._extruder_position(d)*2
         self._go_to(self.BED_SIZE_X/2, self.FAT_LINE_POSITION_Y, self.LAYER_HEIGHT, e, 900)
-
-        #Reset the position of the extruder (begin file with e = 0)
-        print("G92 E0", file=self._file)
-        self._e = 0
 
         self._first_layer = True
         self._filament_surface = None
@@ -188,27 +182,26 @@ class Printer:
     #The footer of the file
     def _file_footer(self):
         #disable the fan
-        print("M107", file=self._file)
+        print("M107;", file=self._file)
 
         #Retract a little
         self._go_to(self._x, self._y, self._z, self._e-self.RETRACT_DISTANCE, self.RETRACT_SPEED)
 
         #Go up a bit to avoid collision with the print
-        self._go_to(self._x, self._y, self._z+1, self._e, 1500)
-
-        #Home x and y axis to reset position
-        print("G28 X0 Y0", file=self._file)
-        self._x = 0
-        self._y = 0
+        self._go_to(self._x, self._y, self._z+1, self._e, 3600)
 
         #Go to high y, to move the print out and reachable
-        self._go_to(0, self.Y_FORWARDING, self._z, self._e, 1500)
+        #while not moving the x axis at all
+        print("G1 Y{:.9f} F{};".format(self.Y_FORWARDING, 3600), file=self._file)
+        
+        #Home x and y axis to reset position
+        print("G28 X0;", file=self._file)
 
         #Disable all steppers
-        print("M18 X Y Z E", file=self._file)
+        print("M84;", file=self._file)
 
         #Stop the heating
         if self.COOLDOWN:
-            print("M104 S0", file=self._file)
-            print("M140 S0", file=self._file)
+            print("M104 S0;", file=self._file)
+            print("M140 S0;", file=self._file)
             
